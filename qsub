@@ -16,7 +16,7 @@
 #     GNU General Public License at <http://www.gnu.org/licenses/> for
 #     more details.
 #
-#  
+#
 # Version history:
 #    1.0 --> created 2005 or 2006
 #    2.0 --> Jan 2008  [much improved; no longer requires auxilary 'run' file]
@@ -42,33 +42,35 @@ my $runMode = 'submit'; #by default
 $opts{n} = 1;
 $opts{p} = 0;
 if (!GetOptions("n=s" => \$opts{'n'},
-                "dry-run|no-submit|interactive" => \$opts{'dry-run'},
-                "et|enable-transfer" => \$opts{'enable-transfer'},
-                "preemptable" => \$opts{'preemptable'},
-                "transfer=s" => sub{ $opts{'transfer'}->{$_[1]}=1 },
-                "exclude=s" => sub{ $opts{'exclude'}->{$_[1]}=1 },
-                "priority=i" => \$opts{'p'},
-                "requirements=s" => \$opts{'req'},
-                "env=s" => sub { my @e = $_[1] =~ /^(.+)=(.+)$/;
-                                 die "\n-->Bad -env parameter\n\n" if @e != 2;
-                                 $ENV{$e[0]}=$e[1]},
-                "force" => \$opts{'f'},
-                "log=s" => \$opts{'log'})  ||
+		"dry-run|no-submit|interactive" => \$opts{'dry-run'},
+		"et|enable-transfer" => \$opts{'enable-transfer'},
+		"preemptable" => \$opts{'preemptable'},
+		"transfer=s" => sub{ $opts{'transfer'}->{$_[1]}=1 },
+		"exclude=s" => sub{ $opts{'exclude'}->{$_[1]}=1 },
+		"priority=i" => \$opts{'p'},
+		"requirements=s" => \$opts{'req'},
+		"machine=s" => \$opts{'machine'},
+		"env=s" => sub { my @e = $_[1] =~ /^(.+)=(.+)$/;
+				 die "\n-->Bad -env parameter\n\n" if @e != 2;
+				 $ENV{$e[0]}=$e[1]},
+		"force" => \$opts{'f'},
+		"log=s" => \$opts{'log'})  ||
     (@ARGV == 0  &&  !exists($ENV{'CONDOR_CMD_LINE'}))) {
     print "usage: $0 <options> 'shell-cmd'\n",
-        "where <options> are any of: \n",
-        "\t-dry-run  --> execute directly; do not submit to condor\n",
-        "\t-n <#>    --> number of times to repeat command\n",
-        "\t-t <file> --> file to transfer not already named in 'shell-cmd'\n",
-        "\t-et       --> enable transfers (-t automatically selects this)\n",
-        "\t-exc <file> --> exclude file from automatic transfer\n",
-        "\t-pre      --> enable preemptability & partial output w/ transfers\n",
-        "\t-pri <#>  --> priority from -20 (low) to +20 (high), with default = 0\n",
-        "\t-r <req>  --> ClassAd job requirements (see condor documentation)\n",
-        "\t-env X=Y  --> set environment variable X to Y when running job\n",
-        "\t-f        --> force ignoring of warnings\n",
-        "\t-log <file> --> condor log file (defaults to no log)\n",
-        "\n";
+	"where <options> are any of: \n",
+	"\t-dry-run  --> execute directly; do not submit to condor\n",
+	"\t-n <#>    --> number of times to repeat command\n",
+	"\t-t <file> --> file to transfer not already named in 'shell-cmd'\n",
+	"\t-et       --> enable transfers (-t automatically selects this)\n",
+	"\t-exc <file> --> exclude file from automatic transfer\n",
+	"\t-pre      --> enable preemptability & partial output w/ transfers\n",
+	"\t-pri <#>  --> priority from -20 (low) to +20 (high), with default = 0\n",
+	"\t-r <req>  --> ClassAd job requirements (see condor documentation)\n",
+	"\t-m <machine> --> the ClassAd will force a machine name\n",
+	"\t-env X=Y  --> set environment variable X to Y when running job\n",
+	"\t-f        --> force ignoring of warnings\n",
+	"\t-log <file> --> condor log file (defaults to no log)\n",
+	"\n";
     exit 1;
 }
 
@@ -91,10 +93,10 @@ if (exists($ENV{'CONDOR_CMD_LINE'})) {
     my $pwd = `pwd`;
     chomp $pwd;
     if ($ENV{'CONDOR_OLD_PWD'} eq $pwd) { #did not transfer
-        ExecCmd($ENV{'CONDOR_CMD_LINE'});
+	ExecCmd($ENV{'CONDOR_CMD_LINE'});
     } else { #did transfer
-        chmod 0700, <*>; #make all files executable, just in case
-        ExecCmd($ENV{'CONDOR_LCLCMD_LINE'});
+	chmod 0700, <*>; #make all files executable, just in case
+	ExecCmd($ENV{'CONDOR_LCLCMD_LINE'});
     }
     exit 0;
 }
@@ -115,7 +117,7 @@ if (defined $opts{'transfer'}) {
 #double-check that all transfer files exist
 foreach my $file (keys(%{$opts{'transfer'}})) {
     if (!-e $file) {
-        &abort("Could not find file to transfer: '$file'\n");
+	&abort("Could not find file to transfer: '$file'\n");
     }
 }
 
@@ -124,21 +126,22 @@ foreach my $file (keys(%{$opts{'transfer'}})) {
 my $lclCmdline = ''; #local command line strips paths
 {
     foreach my $item (split /(\s+|\'|\"|>|<|\|)/, $cmdline) {
-        if (!exists($opts{'exclude'}->{$item})) {
-            $item = x_FindFullPath($item);
-            if ($item !~ /\n/  &&  -f $item) {
-                $opts{'transfer'}->{$item} = 1  if $opts{'enable-transfer'};
-                my ($filename) = reverse($item) =~ /(.+?)(?:\/|$)/;
-                $filename = reverse($filename);
-                $item = './'.$filename;
-            }
-        }
-        $lclCmdline .= $item;
+	if (!exists($opts{'exclude'}->{$item})) {
+	    $item = x_FindFullPath($item);
+	    if ($item !~ /\n/  &&  -f $item) {
+		$opts{'transfer'}->{$item} = 1  if $opts{'enable-transfer'};
+		my ($filename) = reverse($item) =~ /(.+?)(?:\/|$)/;
+		$filename = reverse($filename);
+		$item = './'.$filename;
+	    }
+	}
+	$lclCmdline .= $item;
     }
 }
 
 # grab current working directory for initial dir in system using automounter
 my $pwd = `pwd`;
+$pwd =~ s/^\/amd\/tlamachilistli\/root//gm;
 chomp $pwd;
 $ENV{'CONDOR_OLD_PWD'} = $pwd;
 if (0  &&  !$opts{'f'}  &&  !$opts{'enable-transfer'}  &&
@@ -162,12 +165,12 @@ if ($cmdline =~ /\n/) { #environment variables can't handle newlines
 # if 'dry-run' then just run interactively -- don't hand off to condor
 if ($opts{'dry-run'}) {
     if ($opts{'enable-transfer'}) {
-        if (keys(%{$opts{'transfer'}})) {
-            print STDERR "Would have transfered:\n";
-            foreach my $fn (keys(%{$opts{'transfer'}})) {
-                print STDERR "\t$fn\n";
-            }
-        }
+	if (keys(%{$opts{'transfer'}})) {
+	    print STDERR "Would have transfered:\n";
+	    foreach my $fn (keys(%{$opts{'transfer'}})) {
+		print STDERR "\t$fn\n";
+	    }
+	}
     }
     print STDERR "Executing $cmdline\n";
     exit((system('bash', '-c', $cmdline) == 0) ? 0 : 1);
@@ -191,34 +194,41 @@ if (!$opts{'enable-transfer'}) {
 ";
 } else {
     if ($opts{'preemptable'}) {
-        #note we add +FileSystemDomain to ClassAd because condor will only automatically supply FileSystemDomain if transfer == NO or IF_NEEDED
-        my $submitFilesystem =
-            `condor_config_val FILESYSTEM_DOMAIN 2> /dev/null` ||
-            &abort("Failed to run condor_config_val.  ".
-                   "Please check your path.\n");
-        chomp $submitFilesystem;
+	#note we add +FileSystemDomain to ClassAd because condor will only automatically supply FileSystemDomain if transfer == NO or IF_NEEDED
+	my $submitFilesystem =
+	    `condor_config_val FILESYSTEM_DOMAIN 2> /dev/null` ||
+	    &abort("Failed to run condor_config_val.  ".
+		   "Please check your path.\n");
+	chomp $submitFilesystem;
 
-        print $JDF "should_transfer_files = YES
+	print $JDF "should_transfer_files = YES
 when_to_transfer_output = ON_EXIT_OR_EVICT
 +Preemptable = True
 +FileSystemDomain = \"$submitFilesystem\"
 ";
     } else {
-        print $JDF "should_transfer_files = IF_NEEDED
+	print $JDF "should_transfer_files = IF_NEEDED
 when_to_transfer_output = ON_EXIT
 ";
     }
     print $JDF "transfer_input_files = ";
     my @files = keys(%{$opts{'transfer'}});
     for (my $i=0;  $i < @files;  ++$i) {
-        print $JDF ", " if $i > 0;
-        print $JDF $files[$i];
+	print $JDF ", " if $i > 0;
+	print $JDF $files[$i];
     }
     print $JDF "\n";
 }
-if (defined $opts{'req'}) {
-    print $JDF "requirements = ".$opts{'req'}."\n";
+
+if (defined $opts{'req'} && defined $opts{'machine'}) {
+    print $JDF "requirements = ".$opts{'req'}." && TARGET.Machine==\"".$opts{'machine'}."\"\n";
 }
+ elsif (defined $opts{'req'}) {
+    print $JDF "requirements = ".$opts{'req'}."\n";
+} elsif (defined $opts{'machine'}) {
+    print $JDF "requirements = TARGET.Machine==\"".$opts{'machine'}."\"\n";
+}
+
 print $JDF "notification = NEVER
 rank = ((TARGET.FileSystemDomain == MY.FileSystemDomain) * 1000) + (COLLECTOR_HOST_STRING != Machine) * 100 + (TotalSlots - TotalLoadAvg) * 10 + (TotalSlots - SlotID)
 getenv = True
@@ -230,6 +240,8 @@ queue $opts{n}
 close($JDF) ||
     &abort("Failed to write temporary (JDF) file.\n");
 
+system("cp $JDF /tmp/submit");
+
 # -----------------------------------------------------------------------------
 # submit the job; $clusterId contains cluster number if successful
 open(SUBMIT, "condor_submit $JDF 2>&1 |") ||
@@ -240,7 +252,7 @@ while(<SUBMIT>) {
 	$clusterId = $1;
     }
 }
-close(SUBMIT) || 
+close(SUBMIT) ||
     &abort("Failed to run condor_submit.  Please check your path.\n");
 if (!defined $clusterId) {
     &abort("Did not successfully submit job.\n");
@@ -264,28 +276,28 @@ sub ExecCmd {
 
     goto skipMail;
     if (-s $out  ||  -s $err) {
-        open(MAIL, "| /bin/mail -s 'Condor job $CC.$CP ended' $ENV{USER}");
-        print MAIL "$cmd\n-------------\n";
+	open(MAIL, "| /bin/mail -s 'Condor job $CC.$CP ended' $ENV{USER}");
+	print MAIL "$cmd\n-------------\n";
 
-        if (-s $out) {
-            open(FILE, $out); read(FILE, $_, $maxMailSize); close(FILE);
-            print MAIL "Output:\n", $_;
-            if (-s $out > $maxMailSize) {
-                print MAIL "\n(continued in $permOut)\n";
-            } else {
-                unlink $out;
-            }
-        }
-        if (-s $err) {
-            open(FILE, $err); read(FILE, $_, $maxMailSize); close(FILE);
-            print MAIL "Error:\n", $_;
-            if (-s $err > $maxMailSize) {
-                print MAIL "\n(continued in $permErr)\n";
-            } else {
-                unlink $err;
-            }
-        }
-        close(MAIL);
+	if (-s $out) {
+	    open(FILE, $out); read(FILE, $_, $maxMailSize); close(FILE);
+	    print MAIL "Output:\n", $_;
+	    if (-s $out > $maxMailSize) {
+		print MAIL "\n(continued in $permOut)\n";
+	    } else {
+		unlink $out;
+	    }
+	}
+	if (-s $err) {
+	    open(FILE, $err); read(FILE, $_, $maxMailSize); close(FILE);
+	    print MAIL "Error:\n", $_;
+	    if (-s $err > $maxMailSize) {
+		print MAIL "\n(continued in $permErr)\n";
+	    } else {
+		unlink $err;
+	    }
+	}
+	close(MAIL);
     }
   skipMail:
     unlink $out if (-z $out);
@@ -304,24 +316,24 @@ sub x_FindFullPath {
     my ($fn) = @_;
 
     #filenames can't have newlines (stat will give error!)
-    return $fn if ($fn =~ /\n/); 
+    return $fn if ($fn =~ /\n/);
 
     my @globbed = glob($fn);
     if (@globbed == 1  &&  -e $globbed[0]  &&  -f $globbed[0]) {
-        return $globbed[0];
+	return $globbed[0];
     }
 
     if ($fn !~ /\//) { # if does NOT contain slash (/) then search path
-        my @pathes = split /:/, $ENV{PATH}; #/;
-        foreach my $path (@pathes) {
-            # skip system pathes -- don't want to transfer & exe might
-            # not work on another system anyway
-            if ($path ne '/usr/bin'  &&  $path ne '/usr/sbin'  &&
-                $path ne '/bin'  &&  $path ne '/sbin'  &&
-                -f "$path/$fn"  &&  -x "$path/$fn") {
-                return "$path/$fn";
-            }
-        }
+	my @pathes = split /:/, $ENV{PATH}; #/;
+	foreach my $path (@pathes) {
+	    # skip system pathes -- don't want to transfer & exe might
+	    # not work on another system anyway
+	    if ($path ne '/usr/bin'  &&  $path ne '/usr/sbin'  &&
+		$path ne '/bin'  &&  $path ne '/sbin'  &&
+		-f "$path/$fn"  &&  -x "$path/$fn") {
+		return "$path/$fn";
+	    }
+	}
     }
 
     return $fn;
@@ -331,11 +343,11 @@ sub x_FindFullPath {
 # signal handler and abort subroutine
 sub abort {
     if (defined $clusterId) {
-        if ($runMode eq 'submit') {
-            `condor_rm $clusterId 2>&1 > /dev/null`;
-        } else { # $runmode eq 'exec'
-            unlink <.condor_{out,err}.$clusterId.$ENV{CONDOR_PROCESS}>;
-        }
+	if ($runMode eq 'submit') {
+	    `condor_rm $clusterId 2>&1 > /dev/null`;
+	} else { # $runmode eq 'exec'
+	    unlink <.condor_{out,err}.$clusterId.$ENV{CONDOR_PROCESS}>;
+	}
     }
     die @_;
 }
