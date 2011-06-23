@@ -1,0 +1,83 @@
+#!/usr/bin/perl -w
+###########################################################################
+#
+#  qrm --> cleanly removes jobs from queue
+#
+# Copyright 2008 Philip Johnson.
+#
+#     This program is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published
+#     by the Free Software Foundation, either version 3 of the License,
+#     or (at your option) any later version.
+#
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License at <http://www.gnu.org/licenses/> for
+#     more details.
+#  
+# Version history:
+#    1.0 --> Mar 2008
+#    2.0 --> Aug 2008  retrieve partial output, if applicable
+#
+###########################################################################
+
+use strict;
+
+my $arg = join(' ', @ARGV);
+
+if ($arg =~ /^$/) {
+    my ($progname) = $0 =~ /.+\/(\w+)/;
+    die "Usage: $0 <constraint>
+Examples:
+  To remove one job \"cluster\":
+\t$progname <cluster-id>
+  To remove ALL your jobs:
+\t$progname $ENV{USER}
+  To remove contiguous jobs:
+\t$progname <first_cluster_id>-<last_cluster_id>
+
+";
+}
+
+my $spoolDir = `condor_config_val SPOOL`;
+chomp $spoolDir;
+
+if ($arg !~ /^(\d+)(?:-|:)(\d+)$/) {
+    #redo arg just in case any arguments need to be quoted (e.g. a -constraint)
+    rm("'".join("' '", @ARGV)."'"); 
+} else {
+    my ($first, $last) = $arg =~ /^(\d+)(?:-|:)(\d+)$/;
+    if (!defined($first)  ||  !defined($last)) {
+        die "Failed to parse job id range to remove -- please check your command.\n";
+    }
+    #remove from rear so new ones don't get started
+    for (my $i = $last;  $i >= $first;  --$i) {
+        rm($i);
+    }
+}
+
+sub rm {
+    my($constraint) = @_;
+
+    system(qq*condor_qedit $constraint Requirements 'Machine=="none"' *.
+           qq*> /dev/null 2>&1*) == 0 or
+           die "Failed to edit job (does it exist? does it belong to you?)\n";
+    system(qq*condor_vacate_job $constraint 2> /dev/null*);
+    sleep(1);
+    my @ids = `condor_q $constraint -format "%i\t" ClusterId -format "%i\t" ProcId -format "%s\n" Iwd`;
+    foreach my $line (@ids) {
+        my ($cluster, $proc, $workingDir) = split /\s+/, $line;
+        my $tmpdir = "$spoolDir/cluster$cluster.proc$proc.subproc0";
+        opendir(TMPDIR, $tmpdir) or
+            next; # must have finished after the above commands
+        foreach my $fn (readdir(TMPDIR)) {
+            next if !(-f "$tmpdir/$fn");
+            print "Transferred partial output file '$fn'\n";
+            system("cp -p $tmpdir/$fn $workingDir");
+        }
+        closedir(TMPDIR);
+    }
+
+    system(qq*condor_rm $constraint*) == 0 or die "Failed to remove job (are you sure this belongs to you?)\n";
+}

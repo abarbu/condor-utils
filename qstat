@@ -1,0 +1,140 @@
+#!/usr/bin/perl -w
+###########################################################################
+#
+#  qstat --> displays info about running/queued jobs
+#
+# Copyright 2008 Philip Johnson.
+#
+#     This program is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published
+#     by the Free Software Foundation, either version 3 of the License,
+#     or (at your option) any later version.
+#
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License at <http://www.gnu.org/licenses/> for
+#     more details.
+#  
+# Version history:
+#    1.0 --> Mar 2008
+#    1.1 --> Aug 2008  Added query of condor_status to see if suspended
+#
+###########################################################################
+
+use strict;
+
+my %machineStatus;
+x_GetMachineStatus(\%machineStatus);
+
+my $arg = join("' '", @ARGV);
+$arg = "'".$arg."'" if length($arg);
+
+open QPIPE, "condor_q -long $arg|" or die $!;
+while (defined ($_ = <QPIPE>)  &&  !/Submitter/) {}
+print $_;
+my $colFormat = "%-8s %-10s%-4s%-15s%-10s%s\n";
+printf $colFormat, 'ID', 'OWNER', 'ST', 'HOST', 'RUNTIME', 'CMD';
+
+my %s;
+$s{host} = '--';
+while (<QPIPE>) {
+    if (/^$/) {
+        if (defined($machineStatus{$s{host}})  &&
+            $machineStatus{$s{host}} eq 'Suspended') {
+            $s{status} = 'S';
+        }
+        my $runtime = '--';
+        if ($s{status} =~ 'I|H|X|C'  &&  defined $s{currStart}) {
+            $runtime = StringifyElapsedTime($s{RemoteWallClock} -
+                                            $s{suspendTime});
+        } elsif ($s{status} =~ 'R|S') {
+            if (exists($s{NumJobStarts})  &&  $s{NumJobStarts} > 1) { #can't use suspend time!
+                $runtime = StringifyElapsedTime($s{currTime}-$s{currStart});
+            } else {
+                $runtime = StringifyElapsedTime($s{currTime}-$s{currStart}-
+                                                $s{suspendTime});
+            }
+            $runtime = '<'.$runtime if ($s{status} eq 'S')
+        }
+	($s{host}) = $s{host} =~ /(.+?)(?:\.|$)/;
+        if ($s{priority} != 0) {
+            $s{status} .= sprintf '%+d', $s{priority};
+        }
+
+	printf $colFormat, join('.', $s{clusterId}, $s{procId}), $s{owner}, $s{status}, substr($s{host},0,13), $runtime, $s{cmd};
+	undef %s;
+	$s{host} = '--';
+    }
+
+    if (/^ClusterId/) {
+	($s{clusterId}) = /(\d+)/;
+    } elsif (/^ProcId/) {
+	($s{procId}) = /(\d+)/;
+    } elsif (/^Owner/) {
+	($s{owner}) = /"(\S+)"/;
+    } elsif (/^JobStatus/) {
+	($s{status}) = /(\d+)/;
+	$s{status} = ('?', 'I', 'R', 'X', 'C', 'H')[$s{status}];
+    } elsif (/^RemoteHost/) {
+	($s{host}) = /"(\S+)"/;
+    } elsif (/^CumulativeSuspensionTime/) {
+	($s{suspendTime}) = /(\d+)/;
+    } elsif (/^LastSuspensionTime/) {
+	($s{lastSuspendTime}) = /(\d+)/;
+    } elsif (/^JobCurrentStartDate/) {
+	($s{currStart}) = /(\d+)/;
+    } elsif (/^ServerTime/) {
+	($s{currTime}) = /(\d+)/;
+    } elsif (/^RemoteWallClock/) {
+	($s{RemoteWallClock}) = /(\d+)/;
+    } elsif (/^Env =/) {
+	($s{cmd}) = /CONDOR_CMD_LINE=(.+?);/;
+	$s{cmd} =~ s/SeMiCoLoN/;/g;
+	$s{cmd} =~ s/\\"/"/g; #condor escapes quotes in Env on output
+    } elsif (/^NumJobStarts/) {
+	($s{NumJobStarts}) = /(\d+)/;
+    } elsif (/^JobPrio/) {
+	($s{priority}) = /(-?\d+)/;
+    }
+}
+close QPIPE;
+
+
+# -------------------------------------------------------------------------
+# Take an elapsed time in seconds and make meaningful string
+#
+sub StringifyElapsedTime {
+    my ($t) = @_;
+    my $s = '';
+
+    if (int($t / (24*3600))) {
+        $s .= int($t / (24*3600)). 'd:';
+        $s .= int(($t % (24*3600))/3600). 'h';
+    } elsif (int(($t % (24*3600))/3600)) {
+        $s .= int(($t % (24*3600))/3600). 'h:';
+        $s .= int(($t % 3600)/60). 'm';
+    } elsif (int(($t % 3600)/60)) {
+        $s .= int(($t % 3600)/60). 'm:';
+        $s .= ($t % 60). 's';
+    } else {
+        $s .= $t.'s';
+    }
+
+    return $s;
+}
+
+# -------------------------------------------------------------------------
+# Get machine status (importantly, this says whether suspended or not)
+#
+sub x_GetMachineStatus {
+    my ($machStat) = @_;
+
+    open(PIPE, "condor_status -format '%s\t' Name -format '%s\n' Activity|");
+    while (<PIPE>) {
+        chomp;
+        my ($mach, $activity) = split;
+        $machStat->{$mach} = $activity if (defined($mach));
+    }
+    close(PIPE);
+}

@@ -1,0 +1,117 @@
+#!/usr/bin/perl -w
+###########################################################################
+#
+#  qhist --> displays info about completed jobs
+#
+# Copyright 2008 Philip Johnson.
+#
+#     This program is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published
+#     by the Free Software Foundation, either version 3 of the License,
+#     or (at your option) any later version.
+#
+#     This program is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License at <http://www.gnu.org/licenses/> for
+#     more details.
+#  
+# Version history:
+#    1.0 --> Mar 2008
+#
+###########################################################################
+
+use strict;
+use POSIX qw(strftime);
+my $arg = join("' '", @ARGV);
+$arg = "'".$arg."'" if length($arg);
+
+my $majorVersion;
+{
+    my @r = `condor_version`;
+    ($majorVersion) = $r[0] =~ /\s(\d+)\./;
+}
+my $opt = ($majorVersion >= 7) ? '-backwards -long' : '-l';
+open QPIPE, "condor_history $opt $arg|" or die $!;
+printf "%-9s%-10s%-3s%-10s%-12s%s\n", 'ID', 'OWNER', 'ST', 'RUNTIME', 'COMPLETED@', 'CMD';
+
+my %s;
+while (<QPIPE>) {
+    if (/^$/) {
+	$s{suspendTime} = 0 if !defined($s{suspendTime});
+	my $runtime = '--';
+	my $completeTime = '--';
+	if (defined $s{currStart}) {
+	    if (defined $s{completionDate}  &&  $s{completionDate} > 0) {
+		$completeTime = StringifyDate($s{completionDate});
+            }
+            $runtime = StringifyElapsedTime($s{RemoteWallClock}-$s{suspendTime});
+	}
+        if (!defined $s{cmd}) {
+            $s{cmd} = '[?? -- not submitted using qsub]';
+        }
+	printf "%-9s%-10s%-3s%-10s%-12s%s\n", $s{clusterId}.'.'.$s{procId}, $s{owner}, $s{status}, $runtime, $completeTime, $s{cmd};
+	undef %s;
+    }
+
+    if (/^ClusterId/) {
+	($s{clusterId}) = /(\d+)/;
+    } elsif (/^ProcId/) {
+	($s{procId}) = /(\d+)/;
+    } elsif (/^Owner/) {
+	($s{owner}) = /"(\S+)"/;
+    } elsif (/^JobStatus/) {
+	($s{status}) = /(\d+)/;
+	$s{status} = ('?', 'I', 'R', 'X', 'C', 'H')[$s{status}];
+    } elsif (/^CompletionDate/) {
+	($s{completionDate}) = /(\d+)/;
+#    } elsif (/^LastVacateTime/) {
+#	($s{vacateDate}) = /(\d+)/;
+    } elsif (/^CumulativeSuspensionTime/) {
+	($s{suspendTime}) = /(\d+)/;
+    } elsif (/^JobCurrentStartDate/) {
+	($s{currStart}) = /(\d+)/;
+    } elsif (/^RemoteWallClock/) {
+	($s{RemoteWallClock}) = /(\d+)/;
+    } elsif (/^EnteredCurrentStatus/) {
+        ($s{EnteredCurrentStatus}) = /(\d+)/;
+    } elsif (/^Env =/) {
+	($s{cmd}) = /CONDOR_CMD_LINE=(.+?);/;
+        if (defined $s{cmd}) {
+            $s{cmd} =~ s/SeMiCoLoN/;/g;
+            $s{cmd} =~ s/\\"/"/g; #condor escapes quotes in Env on output
+        }
+    }
+}
+close QPIPE;
+
+
+# -------------------------------------------------------------------------
+# Take an elapsed time in seconds and make meaningful string
+#
+sub StringifyElapsedTime {
+    my ($t) = @_;
+    my $s = '';
+
+    if (int($t / (24*3600))) {
+        $s .= int($t / (24*3600)). 'd:';
+        $s .= int(($t % (24*3600))/3600). 'h';
+    } elsif (int(($t % (24*3600))/3600)) {
+        $s .= int(($t % (24*3600))/3600). 'h:';
+        $s .= int(($t % 3600)/60). 'm';
+    } elsif (int(($t % 3600)/60)) {
+        $s .= int(($t % 3600)/60). 'm:';
+        $s .= ($t % 60). 's';
+    } else {
+        $s .= $t.'s';
+    }
+
+    return $s;
+}
+
+# -------------------------------------------------------------------------
+# Take a date in seconds since epoch and make meaningful string
+#
+sub StringifyDate {
+    return strftime "%m/%d %H:%M", localtime($_[0]);
+}
