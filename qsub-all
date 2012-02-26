@@ -11,5 +11,5 @@ fi
 
 while read line; do
   echo $line;
-  qsub ${line};
+  qsub "${line}";
 done < $1
